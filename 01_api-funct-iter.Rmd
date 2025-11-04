@@ -247,24 +247,22 @@ parkwide_visitation(year = "1992")
 **For our `unit_visitation()` function, make the default arguments for the start and end months January and December, respectively. This way, we are automatically pulling in data for an entire year. Then, rerun the updated `unit_visitation()` function for ROMO, EVER, and THRO for the 1980-2024 time period to make sure it works properly.**
 
 ```{r}
-unit_visitation <- function(unitCode,
-  startMonth = 1,
-  startYear,
-  endMonth = 12,
-  endYear) {
-  url_unitvis <- paste0("https://irmaservices.nps.gov/v3/rest/stats/visitation?", "unitCode=", unitCode,
-    "&startMonth=", startMonth,
-    "&startYear=", startYear,
-    "&endMonth=", endMonth,
-    "&endYear=", endYear)
-  raw_data <- GET(url_unitvis)
-extracted_data <- content(raw_data, as = "text", encoding = "UTF-8")
-  
-  # Parse JSON to data frame
-  final_data <- fromJSON(extracted_data)
-  
-  return(final_data)
+unit_visitation <- function(code, startmonth = "1", startyear, endmonth = "12", endyear){
+
+raw_data <- httr::GET(url = paste0("https://irmaservices.nps.gov/v3/rest/stats/visitation?unitCodes=", code, "&startMonth=", startmonth, "&startYear=", startyear, "&endMonth=", endmonth, "&endYear=", endyear))
+
+extracted_data <- httr::content(raw_data, as = "text", encoding = "UTF-8") 
+final_data <- jsonlite::fromJSON(extracted_data)
+
+return(final_data)
+
 }
+
+codes <- c("ROMO", "ACAD", "LAKE", "YELL", "GRCA", "ZION", "OLYM", "GRSM")
+
+units <- codes %>% 
+map(~ unit_visitation(code = .x, startyear = 1980, endyear = 2024)) %>% 
+bind_rows()
 
 pull_ROMO9224 <- unit_visitation("ROMO", 1, 1992, 12, 2024)
 
@@ -368,19 +366,11 @@ multi_years <- bind_rows(output_map)
 
 ```{r}
 park_codes <- c("ROMO", "EVER", "THRO")
-parks <- map(park_codes, ~ {
-  df <- unit_visitation(
-    unitCode = .x,
-    startMonth = 1,
-    startYear = 1980,
-    endMonth = 12,
-    endYear = 2024
-  )
-  df$UnitCode <- .x
-  df
-})
+visitation <- park_codes %>% 
+  map(~ unit_visitation(code = .x, startyear = 1980, endyear = 2024) %>% 
+        mutate(UnitCode = .x)) %>%  # Add a column to identify the park
+  bind_rows()
 
-visitation <- bind_rows(parks)
 head(visitation)
 
 ```

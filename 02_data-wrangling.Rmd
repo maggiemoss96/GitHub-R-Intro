@@ -57,7 +57,22 @@ parkwide <- years %>%
 **Using the `unit_visitation()` function from the last lesson and mapping, pull visitor data from 1980-2024 for the following park units: ROMO, ACAD, LAKE, YELL, GRCA, ZION, OLYM, and GRSM. Name the final output `units`.**
 
 ```{r}
+unit_visitation <- function(code, startmonth = "1", startyear, endmonth = "12", endyear){
 
+raw_data <- httr::GET(url = paste0("https://irmaservices.nps.gov/v3/rest/stats/visitation?unitCodes=", code, "&startMonth=", startmonth, "&startYear=", startyear, "&endMonth=", endmonth, "&endYear=", endyear))
+
+extracted_data <- httr::content(raw_data, as = "text", encoding = "UTF-8") 
+final_data <- jsonlite::fromJSON(extracted_data)
+
+return(final_data)
+
+}
+
+codes <- c("ROMO", "ACAD", "LAKE", "YELL", "GRCA", "ZION", "OLYM", "GRSM")
+
+units <- codes %>% 
+map(~ unit_visitation(code = .x, startyear = 1980, endyear = 2024)) %>% 
+bind_rows()
 ```
 
 ## Exploring our data
@@ -128,6 +143,18 @@ plotly::ggplotly(
 **Create an interactive graph with two separate panes: one showing park-wide visitation, the other showing all the individual park units. Both panes should have different y-axes.**
 
 ```{r}
+parkwide_only <- annual_visitation %>%
+  filter(UnitCode == "Parkwide")
+individual_parks <- annual_visitation %>%
+  filter(UnitCode != "Parkwide")
+
+pane1 <- ggplot(parkwide_only, aes(x = Year, y = RecVisitation)) + geom_line(color = 'orange') + geom_point(color = 'orange') + labs(y = "Parkwide Visitors", x = "Year") + theme_minimal()
+
+pane2 <- ggplot(individual_parks, aes(x = Year, y = RecVisitation, color = UnitCode)) + geom_line() + geom_point() + facet_wrap(~UnitCode, scales = "free_y") + labs(y = "Annual Visitors by Park", x = "Year") + theme_minimal()
+
+twopane_figure <- subplot(ggplotly(pane1), ggplotly(pane2), nrows = 2, shareX = TRUE, titleY = TRUE)
+
+twopane_figure
 
 ```
 
@@ -148,10 +175,16 @@ wide_data <- annual_visitation %>%
 We can make the data set *long* again by using the function `pivot_longer()`:
 
 ```{r}
-long_data <- wide_data %>%
-  pivot_longer(cols = -Year,
-               names_to = "Park",
-               values_to = "RecVisitation")
+wide_data <- wide_data %>%
+  mutate(TotalYear = rowSums(select(., -Year), na.rm = TRUE))
+
+plot_data <- wide_data %>%
+  pivot_longer(
+    cols = -c(Year, TotalYear),
+    names_to = "Park",
+    values_to = "Visitors"
+  ) %>%
+  mutate(Percent = Visitors / TotalYear * 100)
 ```
 
 ... where `cols` are the columns we want to gather into one column (or, the column(s) you DON'T want to gather), while `names_to` and `values_to` are the names and values for the new columns produced from the pivot.
@@ -161,7 +194,11 @@ long_data <- wide_data %>%
 **Using `wide_data` as the starting point, create an interactive time series plot showing the annual percentage of the total recreational visitation made up by all park units. In other words, a visual that allows us to see how much each park unit contributes to the total NPS system's recreational visitation.**
 
 ```{r}
- 
+plot2 <- ggplot(plot_data, aes(x = Year, y = Percent, color = Park)) +
+  geom_line() + geom_point() + facet_wrap(~Park, scales = "free_y") + labs(x = "Year", y = "Percent of Total Visitors",  title = "Annual Percentage Contribution by Park Unit") + theme_minimal()
+
+ggplotly(plot2)
+
 ```
 
 ## Joining
@@ -182,7 +219,37 @@ joined_data <- inner_join(x = units,
 **Using `joined_data` as the starting point, create an interactive time series plot showing the annual percentage of the total recreational visitation made up by each park unit. This plot should look nearly identical to the previous plot.**
 
 ```{r}
+joined_data_plot <- joined_data %>%
+  select(Year, Month, UnitCode = UnitCode.x, RecreationVisitors = RecreationVisitors.x) %>%
+  bind_rows(
+    joined_data %>%
+      select(
+        Year, Month, UnitCode = UnitCode.y, RecreationVisitors = RecreationVisitors.y
+      )
+  ) 
+         
+```
 
+```{r}
+percent_bypark <- joined_data_plot %>%
+  group_by(Year) %>%
+  mutate(TotalYear = sum(RecreationVisitors, na.rm = TRUE),
+         Percent = RecreationVisitors / TotalYear * 100) %>%
+  ungroup()
+
+plot_joined <- ggplot(percent_bypark, aes(x = Year, y = Percent)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~UnitCode, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Percent of Total Visitors",
+    title = "Annual Percentage Contribution by Park Unit (Park-wide + Units)"
+  ) +
+  theme_minimal()
+
+ggplotly(plot_joined)
+  
 ```
 
 ### Exercise #5 {style="color: maroon"}

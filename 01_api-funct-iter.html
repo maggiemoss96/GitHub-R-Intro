@@ -418,12 +418,12 @@ glimpse(raw_data)</code></pre>
 ##  $ url        : chr &quot;https://irmaservices.nps.gov/v3/rest/stats/total/1992&quot;
 ##  $ status_code: int 200
 ##  $ headers    :List of 10
-##   ..$ date                     : chr &quot;Mon, 03 Nov 2025 23:25:29 GMT&quot;
+##   ..$ date                     : chr &quot;Tue, 04 Nov 2025 02:41:22 GMT&quot;
 ##   ..$ content-type             : chr &quot;application/json; charset=utf-8&quot;
 ##   ..$ content-length           : chr &quot;1420&quot;
 ##   ..$ cache-control            : chr &quot;private&quot;
 ##   ..$ server                   : chr &quot;Microsoft-IIS/10.0&quot;
-##   ..$ set-cookie               : chr &quot;ASP.NET_SessionID=cnu5wmcoxr2v3uy3q41mdpu2; path=/; secure; HttpOnly; SameSite=Lax&quot;
+##   ..$ set-cookie               : chr &quot;ASP.NET_SessionID=clcxtcjgza3pmdy4nv4oqhu2; path=/; secure; HttpOnly; SameSite=Lax&quot;
 ##   ..$ x-aspnet-version         : chr &quot;4.0.30319&quot;
 ##   ..$ frame-ancestors          : chr &quot;*.nps.gov&quot;
 ##   ..$ strict-transport-security: chr &quot;max-age=31536000; includeSubDomains&quot;
@@ -442,10 +442,10 @@ glimpse(raw_data)</code></pre>
 ##   ..$ secure    : logi TRUE
 ##   ..$ expiration: POSIXct[1:1], format: &quot;Inf&quot;
 ##   ..$ name      : chr &quot;ASP.NET_SessionID&quot;
-##   ..$ value     : chr &quot;cnu5wmcoxr2v3uy3q41mdpu2&quot;
+##   ..$ value     : chr &quot;clcxtcjgza3pmdy4nv4oqhu2&quot;
 ##  $ content    : raw [1:1420] 5b 7b 22 4d ...
-##  $ date       : POSIXct[1:1], format: &quot;2025-11-03 23:25:29&quot;
-##  $ times      : Named num [1:6] 0 0.00307 0.28675 0.60158 0.81973 ...
+##  $ date       : POSIXct[1:1], format: &quot;2025-11-04 02:41:22&quot;
+##  $ times      : Named num [1:6] 0 0.00226 0.07095 0.14571 0.2648 ...
 ##   ..- attr(*, &quot;names&quot;)= chr [1:6] &quot;redirect&quot; &quot;namelookup&quot; &quot;connect&quot; &quot;pretransfer&quot; ...
 ##  $ request    :List of 7
 ##   ..$ method    : chr &quot;GET&quot;
@@ -472,7 +472,7 @@ encoding is listed as <em>UTF-8</em>. The encoding parameter can be
 found by opening our raw data set in our R console:</p>
 <pre class="r"><code>raw_data # lists &#39;UTF-8&#39;</code></pre>
 <pre><code>## Response [https://irmaservices.nps.gov/v3/rest/stats/total/1992]
-##   Date: 2025-11-03 23:25
+##   Date: 2025-11-04 02:41
 ##   Status: 200
 ##   Content-Type: application/json; charset=utf-8
 ##   Size: 1.42 kB</code></pre>
@@ -585,7 +585,7 @@ ROMO_rawdata &lt;- GET(base_url_visits, query = query_params)
 
 print(ROMO_rawdata)</code></pre>
 <pre><code>## Response [https://irmaservices.nps.gov/v3/rest/stats/visitation?unitCode=ROMO&amp;startMonth=1&amp;startYear=2010&amp;endMonth=12&amp;endYear=2024]
-##   Date: 2025-11-03 23:25
+##   Date: 2025-11-04 02:41
 ##   Status: 200
 ##   Content-Type: application/json; charset=utf-8
 ##   Size: 8.72 MB</code></pre>
@@ -786,24 +786,22 @@ respectively. This way, we are automatically pulling in data for an
 entire year. Then, rerun the updated <code>unit_visitation()</code>
 function for ROMO, EVER, and THRO for the 1980-2024 time period to make
 sure it works properly.</strong></p>
-<pre class="r"><code>unit_visitation &lt;- function(unitCode,
-  startMonth = 1,
-  startYear,
-  endMonth = 12,
-  endYear) {
-  url_unitvis &lt;- paste0(&quot;https://irmaservices.nps.gov/v3/rest/stats/visitation?&quot;, &quot;unitCode=&quot;, unitCode,
-    &quot;&amp;startMonth=&quot;, startMonth,
-    &quot;&amp;startYear=&quot;, startYear,
-    &quot;&amp;endMonth=&quot;, endMonth,
-    &quot;&amp;endYear=&quot;, endYear)
-  raw_data &lt;- GET(url_unitvis)
-extracted_data &lt;- content(raw_data, as = &quot;text&quot;, encoding = &quot;UTF-8&quot;)
-  
-  # Parse JSON to data frame
-  final_data &lt;- fromJSON(extracted_data)
-  
-  return(final_data)
+<pre class="r"><code>unit_visitation &lt;- function(code, startmonth = &quot;1&quot;, startyear, endmonth = &quot;12&quot;, endyear){
+
+raw_data &lt;- httr::GET(url = paste0(&quot;https://irmaservices.nps.gov/v3/rest/stats/visitation?unitCodes=&quot;, code, &quot;&amp;startMonth=&quot;, startmonth, &quot;&amp;startYear=&quot;, startyear, &quot;&amp;endMonth=&quot;, endmonth, &quot;&amp;endYear=&quot;, endyear))
+
+extracted_data &lt;- httr::content(raw_data, as = &quot;text&quot;, encoding = &quot;UTF-8&quot;) 
+final_data &lt;- jsonlite::fromJSON(extracted_data)
+
+return(final_data)
+
 }
+
+codes &lt;- c(&quot;ROMO&quot;, &quot;ACAD&quot;, &quot;LAKE&quot;, &quot;YELL&quot;, &quot;GRCA&quot;, &quot;ZION&quot;, &quot;OLYM&quot;, &quot;GRSM&quot;)
+
+units &lt;- codes %&gt;% 
+map(~ unit_visitation(code = .x, startyear = 1980, endyear = 2024)) %&gt;% 
+bind_rows()
 
 pull_ROMO9224 &lt;- unit_visitation(&quot;ROMO&quot;, 1, 1992, 12, 2024)
 
@@ -922,34 +920,26 @@ with arguments <code>start_year = 1980</code> and
 <code>end_year = 2024</code> across ROMO, EVER, and THRO. Then, create a
 single data frame containing each park units’ output.</strong></p>
 <pre class="r"><code>park_codes &lt;- c(&quot;ROMO&quot;, &quot;EVER&quot;, &quot;THRO&quot;)
-parks &lt;- map(park_codes, ~ {
-  df &lt;- unit_visitation(
-    unitCode = .x,
-    startMonth = 1,
-    startYear = 1980,
-    endMonth = 12,
-    endYear = 2024
-  )
-  df$UnitCode &lt;- .x
-  df
-})
+visitation &lt;- park_codes %&gt;% 
+  map(~ unit_visitation(code = .x, startyear = 1980, endyear = 2024) %&gt;% 
+        mutate(UnitCode = .x)) %&gt;%  # Add a column to identify the park
+  bind_rows()
 
-visitation &lt;- bind_rows(parks)
 head(visitation)</code></pre>
-<pre><code>##   Month NonRecreationVisitors RecreationVisitors UnitCode
-## 1     1                     0               2496     ROMO
-## 2     2                     0               2871     ROMO
-## 3     3                     0               8312     ROMO
-## 4     4                     0              16733     ROMO
-## 5     5                     0              24497     ROMO
-## 6     6                     0              33963     ROMO
-##                         UnitName Year
-## 1 Abraham Lincoln Birthplace NHP 1980
-## 2 Abraham Lincoln Birthplace NHP 1980
-## 3 Abraham Lincoln Birthplace NHP 1980
-## 4 Abraham Lincoln Birthplace NHP 1980
-## 5 Abraham Lincoln Birthplace NHP 1980
-## 6 Abraham Lincoln Birthplace NHP 1980</code></pre>
+<pre><code>##   Month NonRecreationVisitors RecreationVisitors UnitCode          UnitName
+## 1     1                    28              42902     ROMO Rocky Mountain NP
+## 2     2                    44              59403     ROMO Rocky Mountain NP
+## 3     3                    24              58790     ROMO Rocky Mountain NP
+## 4     4                   142              64299     ROMO Rocky Mountain NP
+## 5     5                    98              93210     ROMO Rocky Mountain NP
+## 6     6                  2384             410449     ROMO Rocky Mountain NP
+##   Year
+## 1 1980
+## 2 1980
+## 3 1980
+## 4 1980
+## 5 1980
+## 6 1980</code></pre>
 </div>
 </div>
 </div>
