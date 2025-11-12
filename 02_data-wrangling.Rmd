@@ -1,6 +1,6 @@
 ---
 title: "3.2: Data Wrangling and Visualization"
-author: "Katie Willi"
+author: "Maggie Moss"
 date: "`r Sys.Date()`"
 output: html_document
 ---
