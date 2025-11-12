@@ -1,0 +1,192 @@
+---
+title: "Moss_MapChallenge"
+author: "Maggie Moss"
+date: "2025-11-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r packages}
+source("setup.R")
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+#install packages
+install.packages("sf")
+library(sf)
+install.packages("tigris")
+library(tigris)
+install.packages("terra")
+library(terra)
+```
+
+
+```{r co state shapefile}
+#giving the map a border around Colorado
+co_sf <- states(cb = TRUE, resolution = "500k", class = "sf") %>%
+  filter(STUSPS == "CO")
+
+tmap_mode("view")
+
+tm_shape(co_sf)+
+  tm_borders()
+```
+
+
+```{r elevation}
+# playing around with potentially using elevation data, which I did not. It didn't look great under the Rock Type data I created.  
+co_elevation <- get_elev_raster(co_counties, z = 7)
+co_elevation_crop <- crop(co_elevation, co_sf)
+
+co_elev_terra <- rast(co_elevation_crop)
+
+# Calculate slope and aspect for hillshade
+slope <- terrain(co_elev_terra, v = "slope")
+aspect <- terrain(co_elev_terra, v = "aspect")
+
+# Create hillshade
+hillshade <- shade(slope, aspect, angle = 45, direction = 315)
+
+```
+
+```{r}
+#downloaded the State Geologic Map Compilation Data for the entire US.
+sgmc <- st_read(
+  "/Users/maggiemoss/Documents/ESS-523A-2025/GitHub-R-Intro/Geospatial-main/USGS_SGMC_Shapefiles/SGMC_Geology.shp",
+  quiet = FALSE,
+  options = "GEOM_POSSIBLE_NAMES=geometry"
+)
+```
+```{r}
+#had to clean it up because there were some overlapping polygons in the map. ChatGPT helped me come up with st_make_valid
+
+sgmc <- st_make_valid(sgmc)
+sgmc <- st_transform(sgmc, st_crs(co_sf))
+co_geol <- st_intersection(sgmc, co_sf)
+```
+
+```{r}
+#Clean up the rock types in sgmc because it was visually quite busy/too granular. These main rock types tell us what we want to know.  
+
+co_geol <- co_geol %>%
+  mutate(
+    RockGroup = case_when(
+      MAJOR1 %in% c("Basalt", "Andesite", "Rhyolite", "Dacite", "Felsic-volcanic", "Volcanic", "Mafic-volcanic", "Quartz-latite") ~ "Volcanic",
+      MAJOR1 %in% c("Gabbro", "Diorite", "Granodiorite", "Peridotite", "Ultramafic", "Hypabyssal-mafic-alkaline", "Mafic-hypabyssal") ~ "Mafic Plutonic",
+      MAJOR1 %in% c("Granite", "Rhyolite Porphyry", "Felsite", "Granitic", "Biotite-gneiss", "Alkali-feldspar-granite") ~ "Felsic Plutonic",
+      MAJOR1 %in% c("Sandstone", "Clastic", "Mixed-clastic", "Sandstone-mudstone", "Conglomerate", "Quartzite", "Arkose", "Arenite", "Coarse-detrital") ~ "Sandstone",
+      MAJOR1 %in% c("Limestone", "Dolomite", "Chert", "Dolostone", "Marlstone", "Oil-shale") ~ "Carbonates",
+      MAJOR1 %in% c("Shale", "Mudstone", "Clay", "Fine-detrital") ~ "Mudstone",
+      MAJOR1 %in% c("Siltstone", "Silt") ~ "Siltstone",
+      MAJOR1 %in% c("Metamorphic") ~ "Metamorphic",
+      TRUE ~ "Other"  # catch-all for any remaining types
+    )
+  )
+
+#getting rid of the borders between the polygons within each new Rock Type
+co_geol_dissolved <- co_geol %>%
+  group_by(RockGroup) %>%
+  summarize(geometry = st_union(geometry)) %>%
+  ungroup()
+
+#creating a nice color scheme for the map
+rock_colors <- c(
+  "Volcanic" = "#E34A33",       
+  "Mafic Plutonic" = "#0072B2",
+  "Felsic Plutonic" = "#E69FBC", 
+  "Sandstone" = "#F0E442",      
+  "Carbonates" = "#984EA3",     
+  "Mudstone" = "#8B4513",   
+  "Siltstone" = "#FF8C00", 
+  "Metamorphic" = "#4DAF4A",
+  "Other" = NA         
+)
+```
+
+```{r}
+
+#I decided to investigate where historic mines are placed throughout the state, relative to rock type. I'm interest to see what types of rocks are being mined, if there is a preferential group, or if mining is more widespread in CO. 
+
+mines_sf <- st_read("/Users/maggiemoss/Documents/ESS-523A-2025/GitHub-R-Intro/Geospatial-main/ON-007-08D Historic Metal Mining Districts of Colorado (Data) - v20201112/ON-007-08D-GIS_Data-v20201112/Colorado_Historic_Metal_Mining_Districts.shp")
+mines_sf <- st_transform(mines_sf, st_crs(co_sf))
+mines_sf <- st_make_valid(mines_sf)
+
+```
+
+```{r}
+
+tmap_mode("view")
+
+#tm_shape(hillshade) +
+  #tm_raster(
+    #palette = gray.colors(256, start = 1, end = 0),
+    #alpha = 0.5,                                     
+    #legend.show = FALSE,
+    #style = "cont"
+  #) +
+
+Moss_MapChallenge <- tm_shape(co_geol_dissolved) +
+  tm_fill(
+    col = "RockGroup",
+    palette = rock_colors,
+    alpha = 0.7,
+    border.col = NA,       # no internal borders
+    title = "Rock Category"
+  ) +
+
+tm_shape(co_sf) +
+  tm_borders(lwd = 2, col = "black") +  # only state border
+
+tm_shape(mines_sf) +
+  tm_symbols(
+    size = 0.3,
+    col = "red",
+    shape = 21,
+    border.col = "red",
+    legend.show = FALSE
+  ) +
+  
+  tm_add_legend(
+    type = "symbol",
+    labels = "Mines",
+    col = "red",
+    shape = 21,
+    border.col = "red",
+    size = 0.5
+  ) +
+
+tm_layout(
+  legend.outside = TRUE,
+  inner.margins = c(0.15, 0.05, 0.1, 0.02),
+  frame = TRUE,
+  main.title = "Location of Colorado Mines and Rock Unit Types\nby Maggie Moss",
+  main.title.size = 1,
+  legend.title.size = 0.7
+) +
+
+tm_scale_bar(position = c("center", "bottom"), text.size = 0.7) +
+tm_compass(position = c("right", "bottom"), size = 2) +
+tm_credits(
+  text = "Data sources:\nUSGS SGMC https://doi.org/10.58783/cgs.of1912.aehj8173\nColorado Geological Survey https://doi.org/10.3133/ds1052",
+  position = c("left", "bottom"),
+  size = 0.7,
+  just = "left"
+)
+
+#elevation option 
+#tm_shape(co_elevation_crop) +
+  #tm_raster(title = "Elevation (m)", palette = terrain.colors(20), alpha = 0.6)
+
+tmap_mode("plot")
+
+tmap_save(Moss_MapChallenge, filename = "CO_Mines_RockUnits.png",
+  width = 10, height = 8, dpi = 300)
+
+tmap_mode("view")
+Moss_MapChallenge
+
+#This was a super cool exercise. The map shows that the majority of CO mines are in areas with large concentrations of plutonic rocks and volcanic rocks. This makes sense, as the percolating fluids from these magmatic intrusions can precipitate mineral resources. This is one reason we have the Colorado Mineral belt. 
+
+```
+
