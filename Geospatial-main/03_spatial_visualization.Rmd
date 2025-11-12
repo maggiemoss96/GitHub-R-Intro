@@ -1,0 +1,381 @@
+---
+title: "Spatial Data Visualization"
+author: "Maggie Moss"
+date: "`r Sys.Date()`"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+## Spatial Data Visualization
+
+In this lesson we will be working with some more advanced mapping and visualization techniques, plotting multiple spatial layers together, and learn how to make these interactive.
+
+First, run your setup script and read in required data (that we have already placed in the data/ folder for you).
+
+```{r}
+source("setup.R")
+
+#install packages
+install.packages("gifski")
+library(gifski)
+
+#load in all your vector data
+load("data/spatdat.RData")
+
+#read in the elevation and landcover rasters
+landcover <- terra::rast("data/NLCD_CO.tif")
+
+elevation <- terra::rast("data/elevation.tif")
+
+# clean up the occ data and make spatial
+occ <- bind_rows(occ) %>% 
+  st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4236)
+
+```
+
+## Mapping with `ggplot2`
+
+Let's start visually exploring our counties data. R has a base `plot()` function which you may have used briefly in previous lessons. If you want to use it to plot `sf` objects, you have to specify the `geometry` column.
+
+```{r}
+plot(counties$geometry)
+```
+
+You've been using `ggplot2` in Lesson 2 to make nonspatial charts, but this package also has the capability of mapping spatial data, specifically `sf` objects, with the `geom_sf()` function:
+
+```{r}
+ggplot(data = counties) +
+  geom_sf()
+```
+
+Say you want to color counties by their total area of water ('AWATER') variable:
+
+```{r}
+ggplot(data = counties, aes(fill = AWATER)) +
+  geom_sf()
+```
+
+`geom_sf()` interprets the geometry of the sf object and visualizes it with the 'fill' value given.
+
+#### Customizing `ggplot2` maps
+
+Here are some ways to make a more publication ready map:
+
+```{r}
+ggplot(data = counties, aes(fill = AWATER)) +
+  geom_sf() +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+  labs(title = "Total Area of Water in each Colorado County, 2021",
+       fill = "Total Area of Water",
+       caption = "Data source: 2021 5-year ACS, US Census Bureau") +
+  theme_void()
+```
+
+You can save `ggplot2` maps/plots either directly from the "Plots" viewing pane or with the `ggsave()` function, which allows for a little more customization in your figure output.
+
+```{r eval=FALSE}
+?ggsave
+```
+
+## Mapping with `tmap`
+
+We've already been using `tmap` to quickly view our results interactively, but there are also a lot of ways to create custom cartographic products with this package.
+
+Set `tmap_mode()` to "plot" to make static maps.
+
+```{r}
+tmap_mode("plot")
+```
+
+The general structure of `tmap` maps is to first initialize the map with `tm_shape` supplied with the name of the spatial object, and then a second function separated with `+` depends on what geometry or symbology you want (similar to ggplot code where you specify the `geom_`). We are going to first map just our county polygons so will use the `tm_polygons()` function.
+
+```{r}
+tm_shape(counties) +
+  tm_polygons()
+```
+
+We can color polygons by a variable using the `col =` argument:
+
+```{r}
+tm_shape(counties) +
+  tm_polygons(fill = "AWATER")
+```
+
+A difference we see between our `tmap` and `ggplot2` maps is that by default `tmap` uses a classified color scheme rather than a continuous once. By default `tmap` sets the classification based on the data range, here choosing intervals of 20 million (i.e, mln).
+
+Given this classified structure, say you also wanted to see the distribution of the raw values:
+
+```{r}
+hist(counties$AWATER)
+```
+
+We can manually change the classification of our map within the `tm_polygons()` function with the `fill.scale =` argument, and edit the title within the `fill.legend =` argument. Let's try using a quantile method, where each class contains the same number of counties. `tm_layout()` also offers a lot of options to customize the map layout. Here we remove the frame around the map.
+
+```{r}
+tm_shape(counties) +
+  tm_polygons(fill = "AWATER",
+              fill.scale = tm_scale_intervals(n = 10, values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Total Area of Water (m^2)")) +
+  tm_layout(frame = FALSE)
+```
+
+Based on the quantile classification, we can see a little more heterogeneity now. We can even add our histogram of the data distribution to the plot too with `legend.hist = TRUE`.
+
+```{r}
+tm_shape(counties) +
+  tm_polygons(fill = "AWATER",
+              fill.scale = tm_scale_intervals(n = 10, values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Total Area of Water (m^2)"),
+              fill.chart = tm_chart_histogram()) +
+  tm_layout(frame = FALSE)
+```
+
+`tmap` also has functions to add more customization like a compass, scale bar and map credits (all things you should always have in a published map!)
+
+```{r}
+tm_shape(counties) +
+  tm_polygons(fill = "AWATER",
+              fill.scale = tm_scale_intervals(n = 10, values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Total Area of Water (m^2)"),
+              fill.chart = tm_chart_histogram()) +
+  tm_layout(frame = FALSE) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_compass(position = c("right", "top")) +
+  tm_credits("Map credit goes here", position = c("right", "bottom"))
+```
+
+You can save your maps with the `tmap_save()` function
+
+```{r eval=FALSE}
+?tmap_save
+```
+
+We can also view attributes as graduated symbols with `tm_bubbles()`
+
+```{r}
+tm_shape(counties) +
+  tm_polygons() +  # add base county boundaries
+  tm_bubbles(size = "AWATER",
+             fill = "blue",
+             fill_alpha = 0.5) 
+```
+
+Building off of this, we can view multiple attributes at once using polygon colors and graduated symbols. Say we want to color county by total water area and add graduated symbols for total species occurrences per county.
+
+First: Calculate total species occurrences per county and add it as a new column to `counties`
+
+```{r}
+# we first need to transform our occurrences to match the crs of counties
+occ_prj <- st_transform(occ, st_crs(counties))
+
+# for each county, find all the point intersections and sum them with lengths()
+counties$species_count <- lengths(st_intersects(counties, occ_prj))
+```
+
+```{r}
+tm_shape(counties) +
+  tm_polygons(fill = "AWATER",
+              fill.scale = tm_scale_intervals(n = 10, values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Total Area of Water (m^2)")) +
+  tm_bubbles(size = "species_count",
+             fill = "orange",
+             fill.legend = tm_legend(title = "Species Occurrences")) +
+  tm_layout(frame = FALSE)
+```
+
+Or, you can also add layers from multiple sf objects by calling a new `tm_shape:`
+
+```{r}
+tm_shape(counties) +
+  tm_polygons(fill = "AWATER",
+              fill.scale = tm_scale_intervals(n = 10, values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Total Area of Water (m^2)")) +
+tm_shape(occ) +
+  # tm_symbols is another way to view points
+  tm_symbols(fill = "Species",
+             fill.scale = tm_scale(values = "brewer.dark2"),
+             fill_alpha = 0.8,
+             size = 0.5,
+             col_alpha = 0) + # this removes the point border
+  tm_layout(frame = FALSE)
+```
+
+### `tmap` tips
+
+Want a cool `tmap` tip?
+
+```{r}
+tmap_tip()
+```
+
+### Faceting
+
+Want to compare across multiple variables? We can quickly do that with `tm_facets()`. Let's make a map for each species:
+
+```{r}
+tm_shape(counties) +
+  tm_polygons() +
+  tm_shape(occ) +
+  tm_facets(by = "Species", free.coords = FALSE) +
+  tm_symbols(
+    fill = "Species",
+    fill.scale = tm_scale(values = c("red", "yellow", "blue")),
+    fill_alpha = 0.5,
+    col_alpha = 0
+  ) +
+  tm_layout(legend.show = FALSE)
+  
+```
+
+We can also make these facet maps interactive, and sync the zoom and scrolling across all facets with `sync = TRUE`
+
+```{r eval=FALSE}
+tmap_mode("view")
+
+  tm_polygons() +
+  tm_shape(occ) +
+  tm_facets(by = "Species", sync = TRUE) +
+  tm_symbols(
+    fill = "Species",
+    fill.scale = tm_scale(values = c("red", "yellow", "blue")),
+    fill_alpha = 0.5,
+    col_alpha = 0
+  ) +
+  tm_layout(legend.show = FALSE)
+```
+
+Works better if you open it up to a full screen.
+
+## Animation
+
+Animations are a powerful (and fun!) visualization method when you have time series data. Our Snotel data includes daily snow depth values, so we can make an animation of observations over time.
+
+Let's go back to static plot mode:
+
+```{r}
+tmap_mode("plot")
+```
+
+Let's make an animation showing the change in snow depth at each of our SNOTEL sites in Larimer County for water year 2021.
+
+First filter the data to water year 2021:
+
+```{r}
+snotel_filtered <- snotel_data %>% 
+  filter(Date >= "2022-10-01") %>% 
+  # need to order and factor Date column for annimation
+  arrange(Date) %>% 
+  mutate(Date = factor(Date))
+```
+
+We can make an animation with `tmap_animation()`. To do so we need to create a `tmap` object first, and must set the `nrow` and `ncol` to 1 within `tm_facets()`. We also set `free.coords = FALSE` which will keep the zoom level of the map constant across animation frames. We then supply this object and other animation settings to `tmap_animation()`.\
+
+```{r}
+#let's also add the elevation layer as a basemap
+larimer <- counties %>% 
+  filter(NAME == "Larimer")
+
+elevation_larimer <- terra::crop(elevation, larimer)
+
+# set up map for animation
+m1 <- tm_shape(elevation_larimer) +
+  tm_raster() +
+  tm_shape(snotel_filtered) +
+  tm_bubbles(size = "value") +
+  tm_layout(legend.position = c("right", "bottom")) +
+  tm_facets(
+    pages = "Date",
+    free.coords = FALSE,
+    free.scales.symbol.size = FALSE,
+    nrow = 1,
+    ncol = 1
+  )
+
+```
+
+You may be prompted to install the `gifski` package to run the following, so do that first.
+
+```{r eval=FALSE}
+tmap_animation(m1, filename = "data/snotel.gif", width = 1200, height = 600, delay = 15)
+```
+
+Open the `snotel.gif` you just created to see the animation!
+
+## Interactive Mapping with `leaflet`
+
+So far we have learned about `tmap` and `mapview` for interactive mapping, but we want to introduce one last interactive mapping package. Leaflet is one of the most popular open-source JavaScript libraries for interactive maps, and is used by many famous entities (e.g., The New York Times, GitHub, Mapbox, and many more). The R package provides a wrapper around the JavaScript library so you can make the maps solely in R. It is also very commonly used in Shiny applications.
+
+To create a basic leaflet map, you start with `add_tiles()` for a basemap:
+
+```{r}
+leaflet() %>% 
+  addTiles()
+```
+
+You can choose among many different basemaps that come with the `leaflet` package. You can see all of the options here: <https://leaflet-extras.github.io/leaflet-providers/preview/index.html>.
+
+Here is how we would add a satellite and dark mode basemap, and add controls to switch between the two:
+
+```{r}
+leaflet() %>% 
+  addProviderTiles("Esri.WorldImagery", group = "Satellite") %>% # need to assign a "group" name
+  addProviderTiles("CartoDB.DarkMatter", group = "Dark Mode") %>% 
+  addLayersControl(baseGroups = c("Satellite", "Dark Mode")) # use group names to control order in control box
+```
+
+Now lets add our elevation layer and species occurrences
+
+```{r}
+leaflet() %>% 
+  addProviderTiles("Esri.WorldImagery", group = "Satellite") %>% # need to assign a "group" name
+  addProviderTiles("CartoDB.DarkMatter", group = "Dark Mode") %>% 
+  # add elevation
+  addRasterImage(elevation, opacity = 0.75, group = "Elevation") %>% # make it slightly transparent
+  # add points
+  addCircleMarkers(
+    data = occ,
+    radius = 5, # point size
+    color = "black",
+    stroke = FALSE,
+    group = "Occurrences"
+  ) %>% 
+  addLayersControl(baseGroups = c("Satellite", "Dark Mode"), overlayGroups = c("Elevation", "Occurrences"))
+```
+
+Some finer details, lets customize our color palette for our species occurrences and the pop-up windows when you click on the points:
+
+```{r}
+# create a color palette. We use `colorFactor` since species is a categorical variable. You would use `colorNumeric()` for continuous variables
+pal <- colorFactor(palette = c("white", "black", "yellow"),
+                   domain = occ$Species)
+
+leaflet() %>%
+  addProviderTiles("Esri.WorldImagery", group = "Satellite") %>%
+  addProviderTiles("CartoDB.DarkMatter", group = "Dark Mode") %>%
+  addRasterImage(elevation, opacity = 0.75, group = "Elevation") %>%
+  addCircleMarkers(
+    data = occ,
+    radius = 5,
+    color = ~ pal(Species),
+    stroke = FALSE,
+    fillOpacity = 0.8,
+    popup = paste0("Species: ", occ$Species, "</br>", "Year: ", occ$year),
+    # create pop-up box based on data column names, requires some HTML!
+    group = "Occurrences"
+  ) %>%
+  addLegend(
+    pal = pal,
+    values = occ$Species,
+    title = "Species",
+    position = "bottomright"
+  ) %>%
+  addLayersControl(
+    baseGroups = c("Satellite", "Dark Mode"),
+    overlayGroups = c("Elevation", "Occurrences")
+  )
+```
+
+
